@@ -21,10 +21,33 @@ const MOCK_LINEUP = {
   '2026-11-07': ['반지의 제왕 카드게임', '테이크 타임'],
 };
 
-// 배열을 특정 크기(size) 단위로 잘라주는 유틸리티 함수
+// 배열 묶음 함수
 const chunkArray = (arr: string[], size: number) => {
   return Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
     arr.slice(i * size, i * size + size)
+  );
+};
+
+// 개별 Select 박스의 상태를 관리하여 즉각적으로 색상을 변경하는 컴포넌트
+const RsvpSelect = ({ initialValue }: { initialValue: string }) => {
+  const [value, setValue] = useState(initialValue);
+
+  // 선택된 값에 따른 동적 색상 할당
+  let colorClass = '';
+  if (value === 'O') colorClass = 'text-blue-600 border-blue-200 bg-blue-50';
+  else if (value === 'X') colorClass = 'text-red-600 border-red-200 bg-red-50';
+  else colorClass = 'text-emerald-600 border-emerald-200 bg-emerald-50';
+
+  return (
+    <select 
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      className={`w-full p-1 border rounded font-bold text-center outline-none cursor-pointer text-sm transition-colors ${colorClass}`}
+    >
+      <option value="-">-</option>
+      <option value="O">O</option>
+      <option value="X">X</option>
+    </select>
   );
 };
 
@@ -60,11 +83,10 @@ export default function SchedulePage() {
     if (oCount === 3) return '3인';
     if (oCount === 2) return '2인';
     if (xCount === 3) return 'X';
-    return null; // O가 1명이거나, 모두 미정(-)인 경우 달력에 뱃지를 표시하지 않음
+    return null;
   };
 
   const tableDates = Object.keys(MOCK_RSVP).sort();
-  // 날짜 배열을 5개씩 묶음 처리 (가로 스크롤 방지 및 하단 여백 활용)
   const dateChunks = chunkArray(tableDates, 5);
 
   return (
@@ -77,7 +99,6 @@ export default function SchedulePage() {
         <div className="w-20" /> 
       </header>
 
-      {/* 달력 늘어남에 따라 우측 테이블이 같이 늘어나지 않도록 items-start 적용 */}
       <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
         {/* 좌측: 달력 영역 */}
         <section className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -99,7 +120,10 @@ export default function SchedulePage() {
                 <div key={day} className="bg-white min-h-[80px] p-2 flex flex-col justify-between hover:bg-slate-50 transition-colors">
                   <span className="text-sm font-medium text-gray-700">{day}</span>
                   {status && (
-                    <div className={`text-center text-sm font-bold py-1 rounded ${status === '3인' ? 'bg-indigo-100 text-indigo-700' : status === 'X' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-700'}`}>
+                    <div className={`text-center text-sm font-bold py-1 rounded 
+                      ${status === '3인' ? 'bg-blue-100 text-blue-700' // 3인은 파란색
+                      : status === 'X' ? 'bg-red-100 text-red-600'    // X는 빨간색
+                      : 'bg-emerald-100 text-emerald-700'}`}>         {/* 2인은 초록색 */}
                       {status}
                     </div>
                   )}
@@ -136,17 +160,8 @@ export default function SchedulePage() {
                       const val = rsvp[user] || '-';
                       return (
                         <td key={`${user}-${date}`} className="p-1.5">
-                          <select 
-                            defaultValue={val}
-                            className={`w-full p-1 border rounded font-bold text-center outline-none cursor-pointer text-sm
-                              ${val === 'O' ? 'text-blue-600 border-blue-200 bg-blue-50' 
-                              : val === 'X' ? 'text-red-600 border-red-200 bg-red-50' 
-                              : 'text-emerald-600 border-emerald-200 bg-emerald-50'}`} // 기본값(-)은 초록색
-                          >
-                            <option value="-">-</option>
-                            <option value="O">O</option>
-                            <option value="X">X</option>
-                          </select>
+                          {/* 개별 렌더링을 위해 만든 RsvpSelect 컴포넌트 사용 */}
+                          <RsvpSelect initialValue={val} />
                         </td>
                       );
                     })}
@@ -159,7 +174,6 @@ export default function SchedulePage() {
       </div>
 
       <section className="max-w-6xl mx-auto mt-8 flex flex-col md:flex-row gap-6 items-start">
-        {/* Play Wish List 툴팁 버튼 */}
         <div className="relative group shrink-0">
           <button className="px-6 py-4 bg-white border-2 border-slate-800 text-slate-800 font-bold rounded-xl hover:bg-slate-50 transition-colors shadow-sm">
             Play_wish_List
@@ -174,7 +188,6 @@ export default function SchedulePage() {
           </div>
         </div>
 
-        {/* 라인업 텍스트 */}
         <div className="flex-1 bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center flex-wrap gap-2">
           <span className="font-bold text-gray-800 mr-2 shrink-0">11/7 (토) 라인업 :</span>
           {MOCK_LINEUP['2026-11-07'].map((game, idx) => (
