@@ -211,7 +211,7 @@ export default function CatalogPage() {
             
           </div>
         ))}
-      </div>
+      </section>
     </main>
   );
 }
