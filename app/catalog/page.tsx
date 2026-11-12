@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Home, Search, Trophy, FileText, Youtube, BookOpen, PlusCircle } from 'lucide-react';
+import { Home, Search, Trophy, FileText, PlayCircle, BookOpen, PlusCircle } from 'lucide-react';
 
 // 임시 모의 데이터 (DB 연동 시 boardgame_collection 테이블에서 가져옴)
 const MOCK_GAMES = [
@@ -199,7 +199,7 @@ export default function CatalogPage() {
                 className={`p-2.5 flex justify-center items-center gap-1.5 text-sm font-bold transition-colors ${game.ruleVideo ? 'bg-slate-700 text-white hover:bg-slate-800' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
                 disabled={!game.ruleVideo}
               >
-                <Youtube className="w-4 h-4" /> 룰영상
+                <PlayCircle className="w-4 h-4" /> 룰영상
               </button>
               <button 
                 className={`p-2.5 flex justify-center items-center gap-1.5 text-sm font-bold transition-colors ${game.summary ? 'bg-slate-700 text-white hover:bg-slate-800' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
