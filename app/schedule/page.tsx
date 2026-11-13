@@ -31,6 +31,16 @@ const formatGameTitle = (title: string) => {
   return title.replace(/\s*\(.*?\)/g, '').trim();
 };
 
+// 👇 새로 추가할 함수: "1234" -> "1~4", "1,2" -> "1~2", "2" -> "2" 로 변환
+const formatBestPlayer = (val: string | number) => {
+  if (!val) return '';
+  const str = String(val).replace(/[^0-9]/g, ''); // 숫자만 추출
+  if (str.length > 1) {
+    return `${str[0]}~${str[str.length - 1]}`;
+  }
+  return str;
+};
+
 // --- RSVP 상태 업데이트용 개별 Select 컴포넌트 ---
 const RsvpSelect = ({ 
   planId, 
@@ -130,7 +140,10 @@ export default function SchedulePage() {
       }
 
       // 3. 보드게임 컬렉션 테이블 (카탈로그 태그)
-      const { data: collectionData } = await supabase.from('boardgame_collection').select('boardgame_id, catalog_tags');
+      const { data: collectionData, error: collError } = await supabase.from('boardgame_collection').select('boardgame_id, catalog_tags');
+      
+      if (collError) console.error("컬렉션 테이블 로드 에러:", collError); // 에러 확인용
+
       const cMap: Record<string, any> = {};
       if (collectionData) {
         collectionData.forEach(c => {
@@ -346,8 +359,10 @@ export default function SchedulePage() {
                 const gameData = boardgamesMap[gameId];
                 const collectionData = collectionMap[gameId];
                 
-                // formatGameTitle 함수가 있다면 여기에 적용
+                // 한글 이름만 남기기
                 const displayTitle = gameData ? formatGameTitle(gameData.title) : '알 수 없는 게임';
+                // 인원수 포맷팅 (예: 1~2)
+                const bestPlayerText = gameData?.best_player ? formatBestPlayer(gameData.best_player) : '';
 
                 return (
                   <div key={idx} className="relative group cursor-help text-indigo-600 hover:text-indigo-800 font-medium px-2 border-r last:border-0 border-gray-300">
@@ -356,20 +371,27 @@ export default function SchedulePage() {
                     {/* 마우스 오버 툴팁 */}
                     {gameData && (
                       <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-3 w-64 p-3 bg-gray-900 text-white text-sm rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20 pointer-events-none">
+                        
+                        {/* 피드백 2: 툴팁 제목도 한글명만 출력 */}
                         <div className="font-bold text-indigo-300 mb-2 border-b border-gray-700 pb-1">
-                          {gameData.title}
+                          {displayTitle}
                         </div>
                         
                         <ul className="text-gray-200 space-y-1.5 text-xs mb-3">
                           {gameData.game_type && <li>🏷️ 타입: {gameData.game_type}</li>}
-                          {gameData.best_player && <li>👥 추천 인원: {gameData.best_player}인</li>}
+                          
+                          {/* 피드백 1: 1~2인 포맷으로 출력 */}
+                          {bestPlayerText && <li>👥 추천 인원: {bestPlayerText}인</li>}
+                          
                           {gameData.weight && <li>🧠 웨이트: {gameData.weight} / 5</li>}
-                          {collectionData?.catalog_tags && collectionData.catalog_tags.length > 0 && (
+                          
+                          {/* 피드백 3: 태그 배열 안전한 출력 (배열인지 체크) */}
+                          {collectionData?.catalog_tags && Array.isArray(collectionData.catalog_tags) && collectionData.catalog_tags.length > 0 && (
                             <li>🔖 태그: {collectionData.catalog_tags.join(', ')}</li>
                           )}
                         </ul>
                         
-                        <div className="mt-2 pt-2 border-t border-gray-700 text-[10.5px] text-gray-400 leading-tight">
+                        <div className="mt-2 pt-2 border-t border-gray-700 text-[10.5px] text-gray-400 leading-tight text-center">
                           💡 룰북이나 룰 영상이 필요한 경우<br/>카탈로그 페이지를 참조해 주세요.
                         </div>
                         
@@ -381,7 +403,7 @@ export default function SchedulePage() {
               })
             ) : (
               <span className="text-gray-400 font-medium italic">
-                아직 확정된 라인업이 없습니다.
+                라인업이 확정되지 않았습니다.
               </span>
             )}
         </div>
