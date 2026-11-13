@@ -15,6 +15,7 @@ const MOCK_GAMES = [
     playTime: '120분',
     weight: 3.24,
     tags: ['#엔진빌딩', '#화성개척', '#SF'],
+    image : "https://mcbyutgyiapmxytcaekh.supabase.co/storage/v1/object/public/gatan-web-storage/images/00692028-a4eb-43ae-a6e7-f7564eecbf4b.webp",
     rulebook: '/rules/tm_rulebook.pdf', // 로컬 public 폴더 참조
     ruleVideo: 'https://youtube.com/...',
     summary: '/rules/tm_summary.pdf'
@@ -28,6 +29,7 @@ const MOCK_GAMES = [
     playTime: '120분',
     weight: 3.10,
     tags: ['#필수확장', '#초반부스팅'],
+    image : "https://mcbyutgyiapmxytcaekh.supabase.co/storage/v1/object/public/gatan-web-storage/images/00692028-a4eb-43ae-a6e7-f7564eecbf4b.webp",
     rulebook: '/rules/tm_prelude.pdf',
     ruleVideo: null,
     summary: null
@@ -41,6 +43,7 @@ const MOCK_GAMES = [
     playTime: '30분',
     weight: 1.79,
     tags: ['#입문용', '#셋콜렉션', '#보석'],
+    image : "https://mcbyutgyiapmxytcaekh.supabase.co/storage/v1/object/public/gatan-web-storage/images/00692028-a4eb-43ae-a6e7-f7564eecbf4b.webp",
     rulebook: '/rules/splendor.pdf',
     ruleVideo: 'https://youtube.com/...',
     summary: '/rules/splendor_summary.pdf'
@@ -54,6 +57,7 @@ const MOCK_GAMES = [
     playTime: '90분',
     weight: 3.64,
     tags: ['#농장경영', '#밥먹이기', '#우베'],
+    image : "https://mcbyutgyiapmxytcaekh.supabase.co/storage/v1/object/public/gatan-web-storage/images/00692028-a4eb-43ae-a6e7-f7564eecbf4b.webp",
     rulebook: '/rules/agricola.pdf',
     ruleVideo: 'https://youtube.com/...',
     summary: null
@@ -162,7 +166,15 @@ export default function CatalogPage() {
             <div className="p-5 flex-1 flex flex-col items-center text-center relative">
               {/* 이미지 플레이스홀더 (실제 구현 시 Image 컴포넌트로 교체) */}
               <div className="w-32 h-32 bg-gray-100 rounded-xl border-2 border-dashed border-gray-300 mb-4 flex items-center justify-center text-gray-400 group-hover:scale-105 transition-transform duration-500">
-                사진 영역
+                <img 
+                  src={game.image} 
+                  alt={game.title} 
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    // 이미지 로드 실패 시(주소 오타 등) 회색 박스로 대체
+                    (e.target as HTMLImageElement).src = 'https://via.placeholder.com/128?text=No+Image';
+                  }}
+                />
               </div>
               
               <h3 className="text-xl font-extrabold text-gray-900 mb-2">{game.title}</h3>
