@@ -25,6 +25,12 @@ const getTodayString = () => {
   return `${y}-${m}-${d}`;
 };
 
+const formatGameTitle = (title: string) => {
+  if (!title) return '';
+  // 정규식을 사용해 괄호 '(' 부터 ')' 까지의 문자를 모두 찾아서 제거하고 양옆 공백을 없앰
+  return title.replace(/\s*\(.*?\)/g, '').trim();
+};
+
 // --- RSVP 상태 업데이트용 개별 Select 컴포넌트 ---
 const RsvpSelect = ({ 
   planId, 
@@ -111,10 +117,19 @@ export default function SchedulePage() {
       const { data: accountsData } = await supabase.from('boardgame_accounts').select('id, nickname').order('created_at');
       if (accountsData) setUsers(accountsData);
 
-      const { data: gamesData } = await supabase.from('boardgame').select('id, title');
+      // 2. 보드게임 정보 (라인업 ID 변환용 및 이름 필터링)
+      const { data: gamesData, error: gamesError } = await supabase.from('boardgame').select('id, title');
+      
+      if (gamesError) {
+        console.error("보드게임 테이블 로드 에러 (RLS 의심):", gamesError);
+      }
+
       const gMap: Record<string, string> = {};
       if (gamesData) {
-        gamesData.forEach(g => gMap[g.id] = g.title);
+        gamesData.forEach(g => {
+          // 필터링 함수 적용 및 ID 매핑 안전성 강화
+          gMap[String(g.id)] = formatGameTitle(g.title);
+        });
         setBoardgamesMap(gMap);
       }
 
@@ -316,20 +331,26 @@ export default function SchedulePage() {
         {/* 확정된 미래 라인업 영역 */}
         <div className="flex-1 bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center flex-wrap gap-2">
           <span className="font-bold text-gray-800 mr-2 shrink-0">
-            {nextConfirmedPlan ? `${nextConfirmedPlan.meeting_date} 라인업 :` : '미정 (확정된 일정 없음) :'}
+            {nextConfirmedPlan ? `${nextConfirmedPlan.meeting_date} 라인업 :` : '일정 미확정 :'}
           </span>
           
-          {nextConfirmedPlan ? (
-            nextConfirmedPlan.line_up.map((gameId: string, idx: number) => (
-              <div key={idx} className="relative group cursor-pointer text-indigo-600 hover:text-indigo-800 hover:underline font-medium px-2 border-r last:border-0 border-gray-300">
-                {boardgamesMap[gameId] || '알 수 없는 게임'}
-              </div>
-            ))
-          ) : (
-            <span className="text-gray-400 font-medium italic">
-              아직 라인업이 확정된 다가오는 일정이 없습니다.
-            </span>
-          )}
+            {nextConfirmedPlan ? (
+              nextConfirmedPlan.line_up.map((item: any, idx: number) => {
+                // line_up 안의 데이터가 {"id": "..."} 형태의 객체일 경우와 단순 문자열 "..." 일 경우 모두 대응
+                const gameId = typeof item === 'object' && item !== null ? String(item.id || item.boardgame_id) : String(item);
+                const displayTitle = boardgamesMap[gameId];
+
+                return (
+                  <div key={idx} className="relative group cursor-pointer text-indigo-600 hover:text-indigo-800 hover:underline font-medium px-2 border-r last:border-0 border-gray-300">
+                    {displayTitle || '알 수 없는 게임'}
+                  </div>
+                );
+              })
+            ) : (
+              <span className="text-gray-400 font-medium italic">
+                확정된 라인업이 없습니다.
+              </span>
+            )}
         </div>
       </section>
     </main>
