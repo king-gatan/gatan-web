@@ -97,7 +97,9 @@ export default function SchedulePage() {
   const [plans, setPlans] = useState<Record<string, any>>({});
   const [rsvps, setRsvps] = useState<Record<string, Record<string, string>>>({});
   const [wishlist, setWishlist] = useState<any[]>([]);
-  const [boardgamesMap, setBoardgamesMap] = useState<Record<string, string>>({});
+
+  const [boardgamesMap, setBoardgamesMap] = useState<Record<string, any>>({});
+  const [collectionMap, setCollectionMap] = useState<Record<string, any>>({});
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth(); 
@@ -117,20 +119,24 @@ export default function SchedulePage() {
       const { data: accountsData } = await supabase.from('boardgame_accounts').select('id, nickname').order('created_at');
       if (accountsData) setUsers(accountsData);
 
-      // 2. 보드게임 정보 (라인업 ID 변환용 및 이름 필터링)
-      const { data: gamesData, error: gamesError } = await supabase.from('boardgame').select('id, title');
-      
-      if (gamesError) {
-        console.error("보드게임 테이블 로드 에러 (RLS 의심):", gamesError);
-      }
-
-      const gMap: Record<string, string> = {};
+      // 2. 보드게임 테이블 (이름, 타입, 베스트 인원, 웨이트)
+      const { data: gamesData } = await supabase.from('boardgame').select('id, title, game_type, best_player, weight');
+      const gMap: Record<string, any> = {};
       if (gamesData) {
         gamesData.forEach(g => {
-          // 필터링 함수 적용 및 ID 매핑 안전성 강화
-          gMap[String(g.id)] = formatGameTitle(g.title);
+          gMap[String(g.id)] = g; // 이제 이름 문자열이 아닌 객체 통째로 저장
         });
         setBoardgamesMap(gMap);
+      }
+
+      // 3. 보드게임 컬렉션 테이블 (카탈로그 태그)
+      const { data: collectionData } = await supabase.from('boardgame_collection').select('boardgame_id, catalog_tags');
+      const cMap: Record<string, any> = {};
+      if (collectionData) {
+        collectionData.forEach(c => {
+          cMap[String(c.boardgame_id)] = c;
+        });
+        setCollectionMap(cMap);
       }
 
       const { data: planData } = await supabase.from('gatan_plan').select('*');
@@ -331,24 +337,51 @@ export default function SchedulePage() {
         {/* 확정된 미래 라인업 영역 */}
         <div className="flex-1 bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center flex-wrap gap-2">
           <span className="font-bold text-gray-800 mr-2 shrink-0">
-            {nextConfirmedPlan ? `${nextConfirmedPlan.meeting_date} 라인업 :` : '일정 미확정 :'}
+            {nextConfirmedPlan ? `${nextConfirmedPlan.meeting_date} 라인업 :` : '라인업 미확정 :'}
           </span>
           
             {nextConfirmedPlan ? (
               nextConfirmedPlan.line_up.map((item: any, idx: number) => {
-                // line_up 안의 데이터가 {"id": "..."} 형태의 객체일 경우와 단순 문자열 "..." 일 경우 모두 대응
                 const gameId = typeof item === 'object' && item !== null ? String(item.id || item.boardgame_id) : String(item);
-                const displayTitle = boardgamesMap[gameId];
+                const gameData = boardgamesMap[gameId];
+                const collectionData = collectionMap[gameId];
+                
+                // formatGameTitle 함수가 있다면 여기에 적용
+                const displayTitle = gameData ? formatGameTitle(gameData.title) : '알 수 없는 게임';
 
                 return (
-                  <div key={idx} className="relative group cursor-pointer text-indigo-600 hover:text-indigo-800 hover:underline font-medium px-2 border-r last:border-0 border-gray-300">
-                    {displayTitle || '알 수 없는 게임'}
+                  <div key={idx} className="relative group cursor-help text-indigo-600 hover:text-indigo-800 font-medium px-2 border-r last:border-0 border-gray-300">
+                    <span className="hover:underline">{displayTitle}</span>
+                    
+                    {/* 마우스 오버 툴팁 */}
+                    {gameData && (
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-3 w-64 p-3 bg-gray-900 text-white text-sm rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20 pointer-events-none">
+                        <div className="font-bold text-indigo-300 mb-2 border-b border-gray-700 pb-1">
+                          {gameData.title}
+                        </div>
+                        
+                        <ul className="text-gray-200 space-y-1.5 text-xs mb-3">
+                          {gameData.game_type && <li>🏷️ 타입: {gameData.game_type}</li>}
+                          {gameData.best_player && <li>👥 추천 인원: {gameData.best_player}인</li>}
+                          {gameData.weight && <li>🧠 웨이트: {gameData.weight} / 5</li>}
+                          {collectionData?.catalog_tags && collectionData.catalog_tags.length > 0 && (
+                            <li>🔖 태그: {collectionData.catalog_tags.join(', ')}</li>
+                          )}
+                        </ul>
+                        
+                        <div className="mt-2 pt-2 border-t border-gray-700 text-[10.5px] text-gray-400 leading-tight">
+                          💡 룰북이나 룰 영상이 필요한 경우<br/>카탈로그 페이지를 참조해 주세요.
+                        </div>
+                        
+                        <div className="absolute -bottom-1.5 left-1/2 transform -translate-x-1/2 w-3 h-3 bg-gray-900 rotate-45"></div>
+                      </div>
+                    )}
                   </div>
                 );
               })
             ) : (
               <span className="text-gray-400 font-medium italic">
-                확정된 라인업이 없습니다.
+                아직 확정된 라인업이 없습니다.
               </span>
             )}
         </div>
