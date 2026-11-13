@@ -81,7 +81,8 @@ const RsvpSelect = ({
 };
 
 export default function SchedulePage() {
-  const [currentDate, setCurrentDate] = useState(new Date()); 
+  //const [currentDate, setCurrentDate] = useState(new Date()); 
+  const [currentDate, setCurrentDate] = useState(new Date('2026-11-01'));
   const [isLoading, setIsLoading] = useState(true);
 
   // DB 연동 상태 변수들
@@ -99,6 +100,9 @@ export default function SchedulePage() {
   const blanks = Array.from({ length: firstDayOfMonth }, (_, i) => i);
 
   useEffect(() => {
+    
+    setCurrentDate(new Date()); // 클라이언트 마운트 직후 실제 '오늘' 날짜로 업데이트
+
     const fetchData = async () => {
       setIsLoading(true);
 
