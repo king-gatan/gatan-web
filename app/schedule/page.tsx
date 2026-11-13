@@ -84,6 +84,7 @@ export default function SchedulePage() {
   //const [currentDate, setCurrentDate] = useState(new Date()); 
   const [currentDate, setCurrentDate] = useState(new Date('2026-11-01'));
   const [isLoading, setIsLoading] = useState(true);
+  const [todayStr, setTodayStr] = useState(''); //추가
 
   // DB 연동 상태 변수들
   const [users, setUsers] = useState<any[]>([]);
@@ -102,6 +103,7 @@ export default function SchedulePage() {
   useEffect(() => {
     
     setCurrentDate(new Date()); // 클라이언트 마운트 직후 실제 '오늘' 날짜로 업데이트
+    setTodayStr(getTodayString()); // 👇 이 줄 추가
 
     const fetchData = async () => {
       setIsLoading(true);
@@ -189,10 +191,11 @@ export default function SchedulePage() {
   });
 
   // --- 요구사항 2: 다가오는 미래의 확정된 라인업 ---
-  const todayStr = getTodayString();
-  const upcomingConfirmedPlans = Object.values(plans)
-    .filter(p => p.meeting_date >= todayStr && Array.isArray(p.line_up) && p.line_up.length > 0)
-    .sort((a, b) => a.meeting_date.localeCompare(b.meeting_date));
+  const upcomingConfirmedPlans = todayStr 
+    ? Object.values(plans)
+        .filter(p => p.meeting_date >= todayStr && Array.isArray(p.line_up) && p.line_up.length > 0)
+        .sort((a, b) => a.meeting_date.localeCompare(b.meeting_date))
+    : [];
   
   // 가장 가까운 미래 일정 1개 추출
   const nextConfirmedPlan = upcomingConfirmedPlans.length > 0 ? upcomingConfirmedPlans[0] : null;
