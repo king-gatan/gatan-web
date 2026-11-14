@@ -112,25 +112,25 @@ export default function ReceiptPage() {
       }
 
       // --- 플레이로그 데이터 가져오기 ---
-      const { data: playData } = await supabase
-        .from('boardgame_playlog')
-        .select('id, boardgame_id, boardgame(title)')
-        .eq('play_date', targetDate);
+    const { data: playData } = await supabase
+       .from('boardgame_playlog')
+       .select('id, boardgame_id, boardgame(title)')
+       .eq('play_date', targetDate);
 
-      if (playData) {
-        // TypeScript 타입 에러 및 Supabase 배열 반환 추론을 해결하기 위한 데이터 정제
-        const formattedPlaylogs: Playlog[] = playData.map((item: any) => ({
-          id: item.id,
-          boardgame_id: item.boardgame_id,
-          boardgame: {
-            // Supabase가 배열로 추론하든 객체로 추론하든 안전하게 title만 추출
-            title: Array.isArray(item.boardgame) 
-              ? item.boardgame[0]?.title 
-              : item.boardgame?.title || '알 수 없는 게임'
-          }
-        }));
-        setPlaylogs(formattedPlaylogs);
-      }
+    if (playData) {
+      // TypeScript 타입 에러 및 Supabase 배열 반환 추론을 해결하기 위한 데이터 정제
+      const formattedPlaylogs: Playlog[] = playData.map((item: any) => ({
+        id: item.id,
+        boardgame_id: item.boardgame_id,
+        boardgame: {
+          // Supabase가 배열로 추론하든 객체로 추론하든 안전하게 title만 추출
+          title: Array.isArray(item.boardgame) 
+            ? item.boardgame[0]?.title 
+            : item.boardgame?.title || '알 수 없는 게임'
+        }
+      }));
+      setPlaylogs(formattedPlaylogs);
+    }
 
     fetchReceiptDetails();
   }, [targetPlanId, targetDate]);
