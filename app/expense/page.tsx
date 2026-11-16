@@ -174,18 +174,24 @@ export default function ReceiptPage() {
     }
   };
 
-  // --- 별점 UPDATE 전송 핸들러 ---
+  // --- 별점 UPSERT (INSERT or UPDATE) 전송 핸들러 ---
   const handleRatingSubmit = async (playlogId: string, ratingVal: number) => {
     if (!currentAccountId) {
       alert("메인 페이지에서 유저를 먼저 선택(로그인)해 주세요!");
       return;
     }
     
+    // update() 대신 upsert()를 사용합니다.
     const { error } = await supabase
       .from('boardgame_playlog_ratings')
-      .update({ rating: ratingVal })
-      .eq('playlog_id', playlogId)
-      .eq('account_id', currentAccountId);
+      .upsert(
+        { 
+          playlog_id: playlogId, 
+          account_id: currentAccountId, 
+          rating: ratingVal 
+        },
+        { onConflict: 'playlog_id,account_id' } // UNIQUE 제약 조건을 기준으로 중복 판단
+      );
 
     if (error) {
       console.error("평가 전송 에러:", error);
