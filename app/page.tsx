@@ -89,7 +89,7 @@ export default function MainPage() {
             <span className="text-lg font-bold text-gray-800">보드게임 카탈로그</span>
           </Link>
 
-          <Link href="/receipt" className="relative group bg-white rounded-3xl p-10 flex flex-col items-center justify-center shadow-sm border border-gray-100 hover:shadow-md transition-all cursor-pointer aspect-square">
+          <Link href="/expense" className="relative group bg-white rounded-3xl p-10 flex flex-col items-center justify-center shadow-sm border border-gray-100 hover:shadow-md transition-all cursor-pointer aspect-square">
             {/* 정산 갱신 배지 */}
             <div className="absolute -top-3 right-6 bg-[#ff3b30] text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-sm z-10">
               정산 갱신
