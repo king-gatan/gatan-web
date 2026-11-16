@@ -74,7 +74,7 @@ export default function ReceiptPage() {
     fetchInitialData();
   }, []);
 
-  // 2. 타겟 플랜(날짜)이 바뀔 때마다 해당 일자의 비용 및 플레이로그 갱신
+  // 2. 타겟 플랜(날짜) 또는 현재 유저가 바뀔 때 통합 데이터 갱신 (비용 + 플레이로그 + 내 평점)
   useEffect(() => {
     if (!targetPlanId || !targetDate) return;
 
@@ -108,13 +108,32 @@ export default function ReceiptPage() {
         setExpenses(Object.values(summaryMap));
       }
 
-      // --- 플레이로그 데이터 가져오기 (타입 에러 방지 처리 포함) ---
+      // --- 플레이로그 데이터 가져오기 ---
       const { data: playData } = await supabase
         .from('boardgame_playlog')
         .select('id, boardgame_id, boardgame(title)')
         .eq('play_date', targetDate);
 
       if (playData) {
+        // 💡 [핵심 해결] 플레이로그를 가져온 직후, 이 게임들에 대한 '내 평점'도 한 번에 가져옵니다.
+        const ratingsMap: Record<string, number> = {};
+
+        if (currentAccountId && playData.length > 0) {
+          const playlogIds = playData.map((p: any) => p.id);
+          const { data: ratingData } = await supabase
+            .from('boardgame_playlog_ratings')
+            .select('playlog_id, rating')
+            .eq('account_id', currentAccountId)
+            .in('playlog_id', playlogIds);
+
+          if (ratingData) {
+            ratingData.forEach(r => {
+              ratingsMap[r.playlog_id] = r.rating; // { '플레이로그id': 5점 } 형태로 저장
+            });
+          }
+        }
+
+        // 게임 목록과 평점을 하나로 예쁘게 조립
         const formattedPlaylogs: Playlog[] = playData.map((item: any) => ({
           id: item.id,
           boardgame_id: item.boardgame_id,
@@ -122,36 +141,16 @@ export default function ReceiptPage() {
             title: Array.isArray(item.boardgame) 
               ? item.boardgame[0]?.title 
               : item.boardgame?.title || '알 수 없는 게임'
-          }
+          },
+          myRating: ratingsMap[item.id] || 0 // DB에 평점이 있으면 넣고, 없으면 0점
         }));
+        
         setPlaylogs(formattedPlaylogs);
       }
     };
 
     fetchReceiptDetails();
-  }, [targetPlanId, targetDate]);
-
-  // 3. 내 별점 정보 가져오기 (사용자나 플랜이 바뀔 때마다)
-  useEffect(() => {
-    if (!currentAccountId || playlogs.length === 0) return;
-
-    const fetchMyRatings = async () => {
-      const playlogIds = playlogs.map(p => p.id);
-      const { data: ratingData } = await supabase
-        .from('boardgame_playlog_ratings')
-        .select('playlog_id, rating')
-        .eq('account_id', currentAccountId)
-        .in('playlog_id', playlogIds);
-
-      if (ratingData) {
-        setPlaylogs(prev => prev.map(p => {
-          const myRate = ratingData.find(r => r.playlog_id === p.id);
-          return { ...p, myRating: myRate ? myRate.rating : 0 };
-        }));
-      }
-    };
-    fetchMyRatings();
-  }, [currentAccountId, targetPlanId, playlogs.length]);
+  }, [targetPlanId, targetDate, currentAccountId]); // 💡 현재 접속자가 바뀔 때도 즉시 다시 가져오도록 추가됨
 
   // --- 날짜 이동 핸들러 ---
   const handlePrevDate = () => {
