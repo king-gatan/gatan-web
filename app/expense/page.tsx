@@ -1,10 +1,8 @@
-//DB 연동 1차
-
 'use client';
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Home, Star } from 'lucide-react';
+import { Home, Star, ChevronLeft, ChevronRight } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -33,21 +31,22 @@ export default function ReceiptPage() {
   const [currentAccountId, setCurrentAccountId] = useState<string>(''); 
   const [currentUserNickname, setCurrentUserNickname] = useState<string>(''); 
   
+  // 날짜 이동을 위한 상태 (모든 완료된 일정 목록과 현재 보고 있는 인덱스)
+  const [validPlans, setValidPlans] = useState<{ id: string; meeting_date: string }[]>([]);
+  const [currentPlanIndex, setCurrentPlanIndex] = useState<number>(0);
+  
   const [targetDate, setTargetDate] = useState<string>('');
   const [targetPlanId, setTargetPlanId] = useState<string>('');
   const [expenses, setExpenses] = useState<ExpenseSummary[]>([]);
   const [playlogs, setPlaylogs] = useState<Playlog[]>([]);
 
-  // 1. 초기 데이터 로드 (현재 로그인 유저 확인 & 최근 영수증 플랜)
+  // 1. 초기 데이터 로드 (유저 확인 & 완료된 모든 일정 목록 가져오기)
   useEffect(() => {
     const fetchInitialData = async () => {
-      // 메인 페이지에서 저장한 로그인 정보 불러오기
-      // (주의: 메인 페이지에서 저장할 때 쓴 key 이름과 동일해야 합니다)
       const savedAccountId = localStorage.getItem('gatan_current_user');
       
       if (savedAccountId) {
         setCurrentAccountId(savedAccountId);
-        // 현재 유저의 닉네임 가져오기 (헤더 표시용)
         const { data: userData } = await supabase
           .from('boardgame_accounts')
           .select('nickname')
@@ -56,18 +55,18 @@ export default function ReceiptPage() {
         if (userData) setCurrentUserNickname(userData.nickname);
       }
 
-      // gatan_plan에서 is_receipt_updated가 true인 가장 최근 일정 1개 가져오기
+      // gatan_plan에서 is_receipt_updated가 true인 "모든" 일정 최신순으로 가져오기
       const { data: planData } = await supabase
         .from('gatan_plan')
         .select('id, meeting_date')
         .eq('is_receipt_updated', true)
-        .order('meeting_date', { ascending: false })
-        .limit(1)
-        .single();
+        .order('meeting_date', { ascending: false }); // 내림차순(최신이 0번 인덱스)
 
-      if (planData) {
-        setTargetDate(planData.meeting_date);
-        setTargetPlanId(planData.id);
+      if (planData && planData.length > 0) {
+        setValidPlans(planData);
+        setCurrentPlanIndex(0); // 화면에 처음 접속하면 무조건 0번(가장 최신)을 띄움
+        setTargetDate(planData[0].meeting_date);
+        setTargetPlanId(planData[0].id);
       }
       setIsLoading(false);
     };
@@ -75,12 +74,12 @@ export default function ReceiptPage() {
     fetchInitialData();
   }, []);
 
-  // 2. 타겟 플랜이 결정되면 비용 및 플레이로그 가져오기
+  // 2. 타겟 플랜(날짜)이 바뀔 때마다 해당 일자의 비용 및 플레이로그 갱신
   useEffect(() => {
     if (!targetPlanId || !targetDate) return;
 
     const fetchReceiptDetails = async () => {
-      // --- 비용 데이터 정산 로직 ---
+      // --- 비용 데이터 정산 ---
       const { data: expData } = await supabase
         .from('gatan_plan_expenses')
         .select('*, boardgame_accounts(nickname)')
@@ -99,9 +98,7 @@ export default function ReceiptPage() {
               details: {}
             };
           }
-          
           summaryMap[accId].details[exp.category] = (summaryMap[accId].details[exp.category] || 0) + exp.price;
-          
           if (exp.category === '감액') {
             summaryMap[accId].total -= exp.price;
           } else {
@@ -111,19 +108,17 @@ export default function ReceiptPage() {
         setExpenses(Object.values(summaryMap));
       }
 
-      // --- 플레이로그 데이터 가져오기 ---
+      // --- 플레이로그 데이터 가져오기 (타입 에러 방지 처리 포함) ---
       const { data: playData } = await supabase
         .from('boardgame_playlog')
         .select('id, boardgame_id, boardgame(title)')
         .eq('play_date', targetDate);
 
       if (playData) {
-        // TypeScript 타입 에러 및 Supabase 배열 반환 추론을 해결하기 위한 데이터 정제
         const formattedPlaylogs: Playlog[] = playData.map((item: any) => ({
           id: item.id,
           boardgame_id: item.boardgame_id,
           boardgame: {
-            // Supabase가 배열로 추론하든 객체로 추론하든 안전하게 title만 추출
             title: Array.isArray(item.boardgame) 
               ? item.boardgame[0]?.title 
               : item.boardgame?.title || '알 수 없는 게임'
@@ -132,11 +127,11 @@ export default function ReceiptPage() {
         setPlaylogs(formattedPlaylogs);
       }
     };
-    
+
     fetchReceiptDetails();
   }, [targetPlanId, targetDate]);
 
-  // 3. 내 별점 정보 가져오기 (현재 사용자가 세팅된 이후)
+  // 3. 내 별점 정보 가져오기 (사용자나 플랜이 바뀔 때마다)
   useEffect(() => {
     if (!currentAccountId || playlogs.length === 0) return;
 
@@ -156,7 +151,28 @@ export default function ReceiptPage() {
       }
     };
     fetchMyRatings();
-  }, [currentAccountId, playlogs.length]);
+  }, [currentAccountId, targetPlanId, playlogs.length]);
+
+  // --- 날짜 이동 핸들러 ---
+  const handlePrevDate = () => {
+    // 인덱스가 커질수록 과거 날짜임
+    if (currentPlanIndex < validPlans.length - 1) {
+      const newIndex = currentPlanIndex + 1;
+      setCurrentPlanIndex(newIndex);
+      setTargetDate(validPlans[newIndex].meeting_date);
+      setTargetPlanId(validPlans[newIndex].id);
+    }
+  };
+
+  const handleNextDate = () => {
+    // 인덱스가 작아질수록 최신 날짜임
+    if (currentPlanIndex > 0) {
+      const newIndex = currentPlanIndex - 1;
+      setCurrentPlanIndex(newIndex);
+      setTargetDate(validPlans[newIndex].meeting_date);
+      setTargetPlanId(validPlans[newIndex].id);
+    }
+  };
 
   // --- 별점 UPDATE 전송 핸들러 ---
   const handleRatingSubmit = async (playlogId: string, ratingVal: number) => {
@@ -184,7 +200,7 @@ export default function ReceiptPage() {
 
   return (
     <main className="min-h-screen bg-gray-50 p-6 md:p-12 pb-24">
-      {/* 현재 접속자 정보 표시 영역 (선택창 제거됨) */}
+      {/* 현재 접속자 정보 */}
       <div className="max-w-4xl mx-auto mb-6 flex justify-end">
         <div className="bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-200 flex items-center gap-3">
           <span className="text-sm font-bold text-gray-600">👤 현재 접속자 :</span>
@@ -193,9 +209,7 @@ export default function ReceiptPage() {
               {currentUserNickname}
             </span>
           ) : (
-            <span className="text-sm font-bold text-red-500">
-              로그인 필요
-            </span>
+            <span className="text-sm font-bold text-red-500">로그인 필요</span>
           )}
         </div>
       </div>
@@ -208,13 +222,34 @@ export default function ReceiptPage() {
         <div className="w-20" /> 
       </header>
 
-      {targetDate ? (
+      {validPlans.length > 0 ? (
         <div className="max-w-4xl mx-auto space-y-8">
+          
+          {/* --- 날짜 내비게이션 컨트롤 --- */}
+          <div className="flex items-center justify-between bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+            <button 
+              onClick={handlePrevDate}
+              disabled={currentPlanIndex === validPlans.length - 1}
+              className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-all"
+            >
+              <ChevronLeft className="w-5 h-5" /> 이전 모임
+            </button>
+            
+            <h2 className="text-2xl font-bold text-indigo-900">
+              {targetDate} 정산 내역
+            </h2>
+            
+            <button 
+              onClick={handleNextDate}
+              disabled={currentPlanIndex === 0}
+              className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-all"
+            >
+              다음 모임 <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+
           {/* 정산 요약 영역 */}
           <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-xl font-bold text-slate-800 mb-6 border-b pb-3">
-              🧾 {targetDate} 정산 내역
-            </h2>
             <div className="overflow-x-auto">
               <table className="w-full text-center table-auto border-collapse">
                 <thead>
@@ -250,14 +285,13 @@ export default function ReceiptPage() {
 
           {/* 플레이 평가 영역 */}
           <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-xl font-bold text-slate-800 mb-6 border-b pb-3">
-              🎲 오늘 플레이한 게임 평가
+            <h2 className="text-xl font-bold text-slate-800 mb-6 border-b pb-3 flex items-center gap-2">
+              🎲 {targetDate} 플레이 게임 평가
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {playlogs.map((log) => (
                 <div key={log.id} className="border border-gray-200 p-4 rounded-xl flex flex-col justify-between bg-slate-50 hover:border-indigo-300 transition-colors">
                   <div className="font-bold text-gray-800 mb-4">
-                    {/* 정규식으로 한글명만 추출 */}
                     {log.boardgame?.title.replace(/\s*\(.*?\)/g, '').trim()}
                   </div>
                   <div className="flex items-center justify-between">
@@ -286,7 +320,7 @@ export default function ReceiptPage() {
         </div>
       ) : (
         <div className="max-w-4xl mx-auto text-center py-20 text-gray-500 font-bold bg-white rounded-2xl shadow-sm border border-gray-200">
-          최근에 정산(영수증)이 완료된 일정이 없습니다.
+          정산이 완료된 일정이 없습니다.
         </div>
       )}
     </main>
