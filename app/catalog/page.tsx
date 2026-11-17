@@ -49,60 +49,76 @@ export default function CatalogPage() {
   // 1. 초기 데이터 로드 (Collection + Boardgame + Playlog + Storage Check)
   useEffect(() => {
     const fetchCatalogData = async () => {
-      // 접속 유저 로드
-      const savedUserId = localStorage.getItem('gatan_current_user');
-      if (savedUserId) setCurrentUserId(savedUserId);
+      try {
+        const savedUserId = localStorage.getItem('gatan_current_user');
+        if (savedUserId) setCurrentUserId(savedUserId);
 
-      // 1-1. boardgame_collection과 boardgame 조인하여 가져오기
-      const { data: collectionData } = await supabase
-        .from('boardgame_collection')
-        .select(`
-          id, 
-          boardgame_id, 
-          catalog_tags,
-          boardgame (
-            id, title, game_type, best_player, play_time_min, weight, rule_video_url
-          )
-        `);
+        // 1-1. boardgame_collection과 boardgame 조인하여 가져오기
+        const { data: collectionData, error: collectionError } = await supabase
+          .from('boardgame_collection')
+          .select(`
+            id, 
+            boardgame_id, 
+            catalog_tags,
+            boardgame (
+              id, title, game_type, best_player, play_time_min, weight, rule_video_url
+            )
+          `);
 
-      if (!collectionData) return;
+        // 🚨 [핵심] 에러가 발생하면 콘솔에 출력해서 원인을 찾습니다.
+        if (collectionError) {
+          console.error("❌ 카탈로그 조인 에러:", collectionError);
+        }
 
-      // 1-2. 플레이로그 가져와서 게임별 최신 플레이 날짜 계산
-      const { data: playlogData } = await supabase
-        .from('boardgame_playlog')
-        .select('boardgame_id, play_date');
+        // 데이터가 없으면 로딩만 끄고 중단
+        if (!collectionData) {
+          setIsLoading(false);
+          return;
+        }
 
-      const playDateMap: Record<string, string> = {};
-      if (playlogData) {
-        playlogData.forEach(log => {
-          const currentMax = playDateMap[log.boardgame_id];
-          if (!currentMax || new Date(log.play_date) > new Date(currentMax)) {
-            playDateMap[log.boardgame_id] = log.play_date;
-          }
-        });
+        // 1-2. 플레이로그 가져와서 게임별 최신 플레이 날짜 계산
+        const { data: playlogData } = await supabase
+          .from('boardgame_playlog')
+          .select('boardgame_id, play_date');
+
+        const playDateMap: Record<string, string> = {};
+        if (playlogData) {
+          playlogData.forEach(log => {
+            const currentMax = playDateMap[log.boardgame_id];
+            if (!currentMax || new Date(log.play_date) > new Date(currentMax)) {
+              playDateMap[log.boardgame_id] = log.play_date;
+            }
+          });
+        }
+
+        // 1-3. Storage 파일 목록 가져와서 존재하는 파일 확인
+        const { data: officialFiles, error: offError } = await supabase.storage.from('gatan-web-storage').list('rule_official', { limit: 1000 });
+        const { data: summaryFiles, error: sumError } = await supabase.storage.from('gatan-web-storage').list('rule_summary', { limit: 1000 });
+        
+        if (offError) console.error("❌ 공식 룰북 스토리지 에러:", offError);
+        if (sumError) console.error("❌ 룰 요약 스토리지 에러:", sumError);
+
+        const offSet = new Set(officialFiles?.map(f => f.name.split('.')[0]) || []);
+        const sumSet = new Set(summaryFiles?.map(f => f.name.split('.')[0]) || []);
+        setAvailableRulebooks(offSet);
+        setAvailableSummaries(sumSet);
+
+        // 데이터 병합 (Collection 목록 기준)
+        const combined: CollectionGame[] = collectionData.map((c: any) => ({
+          id: c.id,
+          boardgame_id: c.boardgame_id,
+          catalog_tags: c.catalog_tags || [],
+          boardgame: Array.isArray(c.boardgame) ? c.boardgame[0] : c.boardgame,
+          last_play_date: playDateMap[c.boardgame_id] || null,
+        }));
+
+        setAllGames(combined);
+      } catch (err) {
+        console.error("❌ 알 수 없는 에러 발생:", err);
+      } finally {
+        // 성공하든 에러가 나든 무조건 로딩 화면을 종료합니다.
+        setIsLoading(false); 
       }
-
-      // 1-3. Storage 파일 목록 가져와서 존재하는 파일 확인 (룰북, 룰정리)
-      const { data: officialFiles } = await supabase.storage.from('gatan-web-storage').list('rule_official', { limit: 1000 });
-      const { data: summaryFiles } = await supabase.storage.from('gatan-web-storage').list('rule_summary', { limit: 1000 });
-      
-      const offSet = new Set(officialFiles?.map(f => f.name.split('.')[0]) || []);
-      const sumSet = new Set(summaryFiles?.map(f => f.name.split('.')[0]) || []);
-      setAvailableRulebooks(offSet);
-      setAvailableSummaries(sumSet);
-
-      // 데이터 병합 (Collection 목록 기준)
-      const combined: CollectionGame[] = collectionData.map((c: any) => ({
-        id: c.id,
-        boardgame_id: c.boardgame_id,
-        catalog_tags: c.catalog_tags || [],
-        // Supabase Join은 객체나 배열로 반환되므로 안전하게 추출
-        boardgame: Array.isArray(c.boardgame) ? c.boardgame[0] : c.boardgame,
-        last_play_date: playDateMap[c.boardgame_id] || null,
-      }));
-
-      setAllGames(combined);
-      setIsLoading(false);
     };
 
     fetchCatalogData();
