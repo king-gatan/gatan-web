@@ -64,7 +64,8 @@ export default function CatalogPage() {
             boardgame (
               id, title, game_type, best_player, weight, min_play_time_min, max_play_time_min, rule_video_url
             )
-          `);
+          `)
+          .not('catalog_tags', 'is', null); // 👈 이 줄이 추가되었습니다!
 
         // 🚨 [핵심] 에러가 발생하면 콘솔에 출력해서 원인을 찾습니다.
         if (collectionError) {
@@ -200,7 +201,7 @@ export default function CatalogPage() {
   const formatTitle = (title: string) => title.replace(/\s*\(.*?\)/g, '').trim();
 
   // Storage 공용 URL 가져오기 헬퍼
-  const getStorageUrl = (folder: string, id: string, ext: string = 'png') => {
+  const getStorageUrl = (folder: string, id: string, ext: string = 'webp') => {
     return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/gatan-web-storage/${folder}/${id}.${ext}`;
   };
 
@@ -318,12 +319,11 @@ export default function CatalogPage() {
 
                 {/* 게임 이미지 */}
                 <div className="relative w-full aspect-square bg-gray-50 flex items-center justify-center p-4">
-                  {/* Supabase Storage 에서 id.png 또는 jpg 를 호출 (실패시 기본 텍스트) */}
+                  {/* Supabase Storage 에서 id.webp 또는 png 를 호출 (실패시 기본 텍스트) */}
                   <img 
-                    src={getStorageUrl('images', game.id, 'png')} 
+                    src={getStorageUrl('images', game.id, 'webp')} 
                     onError={(e) => {
-                      // png 실패시 jpg 시도 로직 등을 넣을 수 있습니다.
-                      (e.target as HTMLImageElement).src = getStorageUrl('images', game.id, 'jpg');
+                      (e.target as HTMLImageElement).src = getStorageUrl('images', game.id, 'png');
                     }}
                     alt={game.title}
                     className="object-contain w-full h-full drop-shadow-lg group-hover:scale-105 transition-transform duration-300"
