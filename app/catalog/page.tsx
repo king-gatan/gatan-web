@@ -1,229 +1,374 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Home, Search, Trophy, FileText, PlayCircle, BookOpen, PlusCircle } from 'lucide-react';
+import { Home, Search, PlaySquare, FileText, MonitorPlay, X, Check, Heart } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
 
-// 임시 모의 데이터 (DB 연동 시 boardgame_collection 테이블에서 가져옴)
-const MOCK_GAMES = [
-  {
-    id: 1,
-    title: '테라포밍 마스',
-    genre: '전략',
-    isExpansion: false,
-    bestPlayers: '3인',
-    playTime: '120분',
-    weight: 3.24,
-    tags: ['#엔진빌딩', '#화성개척', '#SF'],
-    image : "https://mcbyutgyiapmxytcaekh.supabase.co/storage/v1/object/public/gatan-web-storage/images/00692028-a4eb-43ae-a6e7-f7564eecbf4b.webp",
-    rulebook: '/rules/tm_rulebook.pdf', // 로컬 public 폴더 참조
-    ruleVideo: 'https://youtube.com/...',
-    summary: '/rules/tm_summary.pdf'
-  },
-  {
-    id: 2,
-    title: '테라포밍 마스: 서곡',
-    genre: '전략',
-    isExpansion: true,
-    bestPlayers: '3인',
-    playTime: '120분',
-    weight: 3.10,
-    tags: ['#필수확장', '#초반부스팅'],
-    image : "https://mcbyutgyiapmxytcaekh.supabase.co/storage/v1/object/public/gatan-web-storage/images/00692028-a4eb-43ae-a6e7-f7564eecbf4b.webp",
-    rulebook: '/rules/tm_prelude.pdf',
-    ruleVideo: null,
-    summary: null
-  },
-  {
-    id: 3,
-    title: '스플렌더',
-    genre: '가족',
-    isExpansion: false,
-    bestPlayers: '3-4인',
-    playTime: '30분',
-    weight: 1.79,
-    tags: ['#입문용', '#셋콜렉션', '#보석'],
-    image : "https://mcbyutgyiapmxytcaekh.supabase.co/storage/v1/object/public/gatan-web-storage/images/00692028-a4eb-43ae-a6e7-f7564eecbf4b.webp",
-    rulebook: '/rules/splendor.pdf',
-    ruleVideo: 'https://youtube.com/...',
-    summary: '/rules/splendor_summary.pdf'
-  },
-  {
-    id: 4,
-    title: '아그리콜라',
-    genre: '일꾼놓기',
-    isExpansion: false,
-    bestPlayers: '3-4인',
-    playTime: '90분',
-    weight: 3.64,
-    tags: ['#농장경영', '#밥먹이기', '#우베'],
-    image : "https://mcbyutgyiapmxytcaekh.supabase.co/storage/v1/object/public/gatan-web-storage/images/00692028-a4eb-43ae-a6e7-f7564eecbf4b.webp",
-    rulebook: '/rules/agricola.pdf',
-    ruleVideo: 'https://youtube.com/...',
-    summary: null
-  },
-];
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+);
+
+// --- 타입 정의 ---
+type Boardgame = {
+  id: string;
+  title: string;
+  game_type: string[];
+  best_player: number[];
+  play_time_min: number;
+  weight: number;
+  rule_video_url: string;
+};
+
+type CollectionGame = {
+  id: string;
+  boardgame_id: string;
+  catalog_tags: string[];
+  boardgame: Boardgame;
+  last_play_date: string | null;
+};
 
 export default function CatalogPage() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string>('');
+  
+  // 전체 데이터 및 화면 표시 데이터
+  const [allGames, setAllGames] = useState<CollectionGame[]>([]);
+  const [filteredGames, setFilteredGames] = useState<CollectionGame[]>([]);
+  
+  // Storage 파일 존재 여부 캐싱
+  const [availableRulebooks, setAvailableRulebooks] = useState<Set<string>>(new Set());
+  const [availableSummaries, setAvailableSummaries] = useState<Set<string>>(new Set());
+  
+  // 검색 및 정렬 상태
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTag, setSelectedTag] = useState('');
   const [sortOption, setSortOption] = useState('genre');
 
-  // 검색 및 정렬 로직
-  const filteredAndSortedGames = [...MOCK_GAMES]
-    .filter(game => game.title.includes(searchQuery) || game.tags.some(tag => tag.includes(searchQuery)))
-    .sort((a, b) => {
-      // 1차 정렬: 선택된 옵션 기준 (기본값 장르순)
-      if (sortOption === 'genre') {
-        const genreCompare = a.genre.localeCompare(b.genre);
-        // 2차 정렬: 이름순 (장르가 같을 경우)
-        if (genreCompare === 0) return a.title.localeCompare(b.title);
-        return genreCompare;
+  // 1. 초기 데이터 로드 (Collection + Boardgame + Playlog + Storage Check)
+  useEffect(() => {
+    const fetchCatalogData = async () => {
+      // 접속 유저 로드
+      const savedUserId = localStorage.getItem('gatan_current_user');
+      if (savedUserId) setCurrentUserId(savedUserId);
+
+      // 1-1. boardgame_collection과 boardgame 조인하여 가져오기
+      const { data: collectionData } = await supabase
+        .from('boardgame_collection')
+        .select(`
+          id, 
+          boardgame_id, 
+          catalog_tags,
+          boardgame (
+            id, title, game_type, best_player, play_time_min, weight, rule_video_url
+          )
+        `);
+
+      if (!collectionData) return;
+
+      // 1-2. 플레이로그 가져와서 게임별 최신 플레이 날짜 계산
+      const { data: playlogData } = await supabase
+        .from('boardgame_playlog')
+        .select('boardgame_id, play_date');
+
+      const playDateMap: Record<string, string> = {};
+      if (playlogData) {
+        playlogData.forEach(log => {
+          const currentMax = playDateMap[log.boardgame_id];
+          if (!currentMax || new Date(log.play_date) > new Date(currentMax)) {
+            playDateMap[log.boardgame_id] = log.play_date;
+          }
+        });
       }
-      // TODO: 다른 정렬 기준(베스트 인원순, 최근 플레이 순 등)은 DB 로그 조인이 필요하므로 임시로 이름순 처리
-      return a.title.localeCompare(b.title);
+
+      // 1-3. Storage 파일 목록 가져와서 존재하는 파일 확인 (룰북, 룰정리)
+      const { data: officialFiles } = await supabase.storage.from('gatan-web-storage').list('rule_official', { limit: 1000 });
+      const { data: summaryFiles } = await supabase.storage.from('gatan-web-storage').list('rule_summary', { limit: 1000 });
+      
+      const offSet = new Set(officialFiles?.map(f => f.name.split('.')[0]) || []);
+      const sumSet = new Set(summaryFiles?.map(f => f.name.split('.')[0]) || []);
+      setAvailableRulebooks(offSet);
+      setAvailableSummaries(sumSet);
+
+      // 데이터 병합 (Collection 목록 기준)
+      const combined: CollectionGame[] = collectionData.map((c: any) => ({
+        id: c.id,
+        boardgame_id: c.boardgame_id,
+        catalog_tags: c.catalog_tags || [],
+        // Supabase Join은 객체나 배열로 반환되므로 안전하게 추출
+        boardgame: Array.isArray(c.boardgame) ? c.boardgame[0] : c.boardgame,
+        last_play_date: playDateMap[c.boardgame_id] || null,
+      }));
+
+      setAllGames(combined);
+      setIsLoading(false);
+    };
+
+    fetchCatalogData();
+  }, []);
+
+  // 2. 검색, 태그 필터링, 정렬 적용 (상태가 바뀔 때마다 실행)
+  useEffect(() => {
+    let result = [...allGames];
+
+    // 태그 필터링
+    if (selectedTag) {
+      result = result.filter(g => g.catalog_tags?.includes(selectedTag));
+    }
+
+    // 텍스트 검색 (이름 또는 태그)
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(g => 
+        g.boardgame.title.toLowerCase().includes(q) || 
+        g.catalog_tags?.some(tag => tag.toLowerCase().includes(q))
+      );
+    }
+
+    // 정렬
+    result.sort((a, b) => {
+      if (sortOption === 'genre') {
+        const genreA = a.boardgame.game_type?.[0] || '';
+        const genreB = b.boardgame.game_type?.[0] || '';
+        return genreA.localeCompare(genreB);
+      } 
+      else if (sortOption === 'best_player') {
+        const bpA = a.boardgame.best_player?.[0] || 999;
+        const bpB = b.boardgame.best_player?.[0] || 999;
+        return bpA - bpB;
+      }
+      else if (sortOption === 'recent') {
+        // null 값(플레이 안 한 게임)은 항상 뒤로
+        if (!a.last_play_date) return 1;
+        if (!b.last_play_date) return -1;
+        return new Date(b.last_play_date).getTime() - new Date(a.last_play_date).getTime();
+      }
+      else if (sortOption === 'oldest') {
+        if (!a.last_play_date) return 1;
+        if (!b.last_play_date) return -1;
+        return new Date(a.last_play_date).getTime() - new Date(b.last_play_date).getTime();
+      }
+      return 0;
     });
 
-  const handleWishlistAdd = (gameTitle: string) => {
-    // DB 연동 시 gatan_plan_wishlist 테이블에 INSERT 처리
-    alert(`[${gameTitle}] 위시리스트에 추가되었습니다!`);
+    setFilteredGames(result);
+  }, [allGames, searchQuery, selectedTag, sortOption]);
+
+  // 3. 위시리스트 추가 핸들러
+  const handleAddWish = async (boardgameId: string, title: string) => {
+    if (!currentUserId) {
+      alert("로그인이 필요합니다.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from('gatan_plan_wishlist')
+      .insert({ boardgame_id: boardgameId, account_id: currentUserId });
+
+    if (error) {
+      // UNIQUE 제약 조건에 걸려 이미 추가된 경우
+      if (error.code === '23505') {
+        alert(`'${title}' 은(는) 이미 위시리스트에 담겨 있습니다!`);
+      } else {
+        alert("오류가 발생했습니다.");
+        console.error(error);
+      }
+    } else {
+      alert(`'${title}' 이(가) 위시리스트에 추가되었습니다!`);
+    }
   };
 
+  // 타이틀 포맷팅 (영문 제거)
+  const formatTitle = (title: string) => title.replace(/\s*\(.*?\)/g, '').trim();
+
+  // Storage 공용 URL 가져오기 헬퍼
+  const getStorageUrl = (folder: string, id: string, ext: string = 'png') => {
+    return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/gatan-web-storage/${folder}/${id}.${ext}`;
+  };
+
+  if (isLoading) return <div className="min-h-screen flex items-center justify-center font-bold text-gray-500">카탈로그를 불러오는 중입니다...</div>;
+
   return (
-    <main className="min-h-screen bg-gray-50 p-6 md:p-12 pb-24">
-      {/* 상단 네비게이션 및 타이틀 */}
-      <header className="max-w-7xl mx-auto flex items-center justify-between mb-8">
-        <Link href="/" className="flex items-center gap-2 text-gray-500 hover:text-gray-900 transition-colors">
+    <main className="min-h-screen bg-[#f8f9fa] p-6 md:p-12 pb-24">
+      {/* 헤더 */}
+      <header className="max-w-6xl mx-auto flex items-center justify-between mb-8">
+        <Link href="/" className="flex items-center gap-2 text-gray-500 hover:text-gray-900 font-bold transition-colors">
           <Home className="w-5 h-5" /> 메인으로
         </Link>
-        <h1 className="text-4xl font-extrabold text-gray-900 tracking-wider">보드게임 카탈로그</h1>
-        <button className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold transition-colors shadow-sm text-sm">
-          <Trophy className="w-4 h-4" />
-          티어리스트 생성 <span className="font-normal opacity-75 text-xs">(향후 구현)</span>
+        <h1 className="text-3xl font-extrabold text-gray-900 absolute left-1/2 transform -translate-x-1/2">
+          보드게임 카탈로그
+        </h1>
+        {/* 티어리스트 (향후 구현용 빈 버튼) */}
+        <button className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm opacity-80 cursor-not-allowed">
+          🏆 티어리스트 생성 (향후 구현)
         </button>
       </header>
 
-      {/* 컨트롤 패널 (정렬 및 검색) */}
-      <section className="max-w-7xl mx-auto bg-slate-800 p-4 rounded-2xl shadow-lg mb-8 flex flex-col md:flex-row gap-4 items-center">
-        {/* 정렬 드롭다운 */}
-        <div className="w-full md:w-48 shrink-0">
+      <div className="max-w-6xl mx-auto space-y-6">
+        {/* 검색 및 컨트롤 바 */}
+        <div className="bg-[#1c2331] rounded-2xl p-2 flex flex-col md:flex-row gap-2 shadow-lg">
           <select 
+            className="bg-[#2a3447] text-white px-4 py-3 rounded-xl font-bold outline-none cursor-pointer border border-transparent focus:border-indigo-400"
             value={sortOption}
             onChange={(e) => setSortOption(e.target.value)}
-            className="w-full p-3 bg-slate-700 border border-slate-600 text-white rounded-xl font-bold outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
           >
             <option value="genre">장르순</option>
-            <option value="bestPlayer">베스트 인원순</option>
-            <option value="recent">최근 플레이 순</option>
-            <option value="oldest">오래된 플레이 순</option>
-            <option value="rating">평점순 (향후 구현)</option>
+            <option value="best_player">베스트 인원순</option>
+            <option value="recent">최근 플레이순</option>
+            <option value="oldest">오래된 플레이순</option>
           </select>
-        </div>
 
-        {/* 검색 바 */}
-        <div className="flex-1 flex w-full">
-          <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <div className="flex-1 flex bg-white rounded-xl overflow-hidden focus-within:ring-2 ring-indigo-500 transition-shadow relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input 
-              type="text" 
-              placeholder="게임 이름이나 태그를 입력하세요" 
+              type="text"
+              placeholder="게임 이름이나 태그를 입력하세요"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 bg-white border-0 rounded-l-xl font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-emerald-400"
+              className="w-full py-3 pl-12 pr-4 font-medium text-gray-800 outline-none"
             />
           </div>
-          <button className="bg-emerald-500 hover:bg-emerald-600 text-white px-8 py-3 rounded-r-xl font-bold transition-colors shrink-0">
+
+          <button className="bg-[#00c885] hover:bg-[#00a86f] text-white font-bold px-8 py-3 rounded-xl transition-colors">
             검색
           </button>
         </div>
-      </section>
 
-      {/* 게임 카드 그리드 */}
-      <section className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {filteredAndSortedGames.map(game => (
-          <div key={game.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col overflow-hidden group">
-            
-            {/* 상단 뱃지 및 위시 버튼 영역 */}
-            <div className="flex justify-between items-start p-3 border-b border-gray-100 bg-slate-50">
-              <div className="flex gap-2">
-                <span className="bg-orange-500 text-white px-2.5 py-1 rounded-md text-xs font-extrabold shadow-sm">
-                  {game.genre}
-                </span>
-                {game.isExpansion && (
-                  <span className="bg-slate-700 text-white px-2.5 py-1 rounded-md text-xs font-extrabold shadow-sm">
-                    확장
-                  </span>
-                )}
-              </div>
-              <button 
-                onClick={() => handleWishlistAdd(game.title)}
-                className="flex items-center gap-1 bg-white border border-indigo-200 text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded text-xs font-bold transition-colors shadow-sm"
-              >
-                <PlusCircle className="w-3 h-3" /> Play Wish
-              </button>
-            </div>
-
-            {/* 메인 정보 영역 */}
-            <div className="p-5 flex-1 flex flex-col items-center text-center relative">
-              {/* 이미지 플레이스홀더 (실제 구현 시 Image 컴포넌트로 교체) */}
-              <div className="w-32 h-32 bg-gray-100 rounded-xl border-2 border-dashed border-gray-300 mb-4 flex items-center justify-center text-gray-400 group-hover:scale-105 transition-transform duration-500">
-                <img 
-                  src={game.image} 
-                  alt={game.title} 
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    // 이미지 로드 실패 시(주소 오타 등) 회색 박스로 대체
-                    (e.target as HTMLImageElement).src = 'https://via.placeholder.com/128?text=No+Image';
-                  }}
-                />
-              </div>
-              
-              <h3 className="text-xl font-extrabold text-gray-900 mb-2">{game.title}</h3>
-              
-              <div className="text-sm font-bold text-gray-600 mb-3 bg-gray-100 px-3 py-1 rounded-full">
-                베스트 {game.bestPlayers}
-              </div>
-              
-              {/* 태그 리스트 */}
-              <div className="flex flex-wrap justify-center gap-1.5 mb-4">
-                {game.tags.map((tag, idx) => (
-                  <span key={idx} className="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-
-              {/* 하단 스탯 */}
-              <div className="w-full flex justify-between items-center text-sm font-semibold text-gray-500 mt-auto pt-4 border-t border-gray-100">
-                <span>타임: {game.playTime}</span>
-                <span>웨이트: {game.weight}</span>
-              </div>
-            </div>
-
-            {/* 하단 링크 버튼 영역 */}
-            <div className="grid grid-cols-3 divide-x divide-slate-600 border-t-2 border-slate-800">
-              <button 
-                className={`p-2.5 flex justify-center items-center gap-1.5 text-sm font-bold transition-colors ${game.rulebook ? 'bg-slate-700 text-white hover:bg-slate-800' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
-                disabled={!game.rulebook}
-              >
-                <FileText className="w-4 h-4" /> 룰북
-              </button>
-              <button 
-                className={`p-2.5 flex justify-center items-center gap-1.5 text-sm font-bold transition-colors ${game.ruleVideo ? 'bg-slate-700 text-white hover:bg-slate-800' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
-                disabled={!game.ruleVideo}
-              >
-                <PlayCircle className="w-4 h-4" /> 룰영상
-              </button>
-              <button 
-                className={`p-2.5 flex justify-center items-center gap-1.5 text-sm font-bold transition-colors ${game.summary ? 'bg-slate-700 text-white hover:bg-slate-800' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
-                disabled={!game.summary}
-              >
-                <BookOpen className="w-4 h-4" /> 룰정리
-              </button>
-            </div>
-            
+        {/* 선택된 태그 표시 영역 */}
+        {selectedTag && (
+          <div className="flex items-center gap-2 bg-indigo-100 text-indigo-800 px-4 py-2 rounded-lg w-max font-bold text-sm">
+            <span>태그 필터: #{selectedTag}</span>
+            <button onClick={() => setSelectedTag('')} className="p-1 hover:bg-indigo-200 rounded-full">
+              <X className="w-4 h-4" />
+            </button>
           </div>
-        ))}
-      </section>
+        )}
+
+        {/* 게임 그리드 카드 UI */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {filteredGames.map((item) => {
+            const game = item.boardgame;
+            const mainGenre = game.game_type?.[0];
+            const bestPlayerList = game.best_player || [];
+            
+            // 베스트 인원 텍스트 변환 (1,2 -> 1-2인)
+            let bestPlayerText = '';
+            if (bestPlayerList.length > 0) {
+              const min = bestPlayerList[0];
+              const max = bestPlayerList[bestPlayerList.length - 1];
+              bestPlayerText = min === max ? `${min}인` : `${min}-${max}인`;
+            }
+
+            return (
+              <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col transition-all hover:shadow-md hover:border-indigo-200 group">
+                
+                {/* 카드 상단 배지 및 위시 버튼 */}
+                <div className="flex justify-between items-center p-4 pb-2">
+                  <div className="flex gap-1.5">
+                    {mainGenre && (
+                      <span className="bg-[#ff7a00] text-white text-[11px] font-bold px-2 py-1 rounded">
+                        {mainGenre}
+                      </span>
+                    )}
+                    {/* 확장판일 경우 태그 임시 예시 (추후 collect_type 연동 가능) */}
+                    {item.catalog_tags?.includes('확장') && (
+                      <span className="bg-[#1e293b] text-white text-[11px] font-bold px-2 py-1 rounded">
+                        확장
+                      </span>
+                    )}
+                  </div>
+                  <button 
+                    onClick={() => handleAddWish(game.id, formatTitle(game.title))}
+                    className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 border border-indigo-200 hover:bg-indigo-50 px-2 py-1 rounded transition-colors"
+                  >
+                    <Heart className="w-3 h-3" /> Play Wish
+                  </button>
+                </div>
+
+                {/* 게임 이미지 */}
+                <div className="relative w-full aspect-square bg-gray-50 flex items-center justify-center p-4">
+                  {/* Supabase Storage 에서 id.png 또는 jpg 를 호출 (실패시 기본 텍스트) */}
+                  <img 
+                    src={getStorageUrl('images', game.id, 'png')} 
+                    onError={(e) => {
+                      // png 실패시 jpg 시도 로직 등을 넣을 수 있습니다.
+                      (e.target as HTMLImageElement).src = getStorageUrl('images', game.id, 'jpg');
+                    }}
+                    alt={game.title}
+                    className="object-contain w-full h-full drop-shadow-lg group-hover:scale-105 transition-transform duration-300"
+                  />
+                </div>
+
+                {/* 게임 정보 텍스트 영역 */}
+                <div className="p-5 flex flex-col flex-1 text-center">
+                  <h3 className="text-xl font-extrabold text-gray-900 mb-1">
+                    {formatTitle(game.title)}
+                  </h3>
+                  <div className="text-sm font-bold text-gray-400 mb-4">
+                    베스트 {bestPlayerText}
+                  </div>
+                  
+                  {/* 클릭 가능한 태그 */}
+                  <div className="flex flex-wrap justify-center gap-1.5 mb-5 mt-auto">
+                    {item.catalog_tags?.map(tag => (
+                      <button 
+                        key={tag}
+                        onClick={() => setSelectedTag(tag)}
+                        className="text-[11px] font-bold text-[#00c885] bg-[#e6f9f2] px-2 py-1 rounded hover:bg-[#00c885] hover:text-white transition-colors"
+                      >
+                        #{tag}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs font-bold text-gray-500 pt-3 border-t border-gray-100">
+                    <span>타임: {game.play_time_min}분</span>
+                    <span>웨이트: {game.weight}</span>
+                  </div>
+                </div>
+
+                {/* 하단 룰 관련 버튼 3개 */}
+                <div className="grid grid-cols-3 bg-[#1e293b] text-white">
+                  {/* 룰북 (pdf 존재 여부 확인) */}
+                  <button 
+                    disabled={!availableRulebooks.has(game.id)}
+                    onClick={() => window.open(getStorageUrl('rule_official', game.id, 'pdf'))}
+                    className="flex items-center justify-center gap-1.5 py-3 text-[11px] font-bold border-r border-gray-600 disabled:opacity-30 hover:bg-slate-700 transition-colors"
+                  >
+                    <FileText className="w-3.5 h-3.5" /> 룰북
+                  </button>
+                  
+                  {/* 룰영상 (URL 존재 여부 확인) */}
+                  <button 
+                    disabled={!game.rule_video_url}
+                    onClick={() => window.open(game.rule_video_url)}
+                    className="flex items-center justify-center gap-1.5 py-3 text-[11px] font-bold border-r border-gray-600 disabled:opacity-30 hover:bg-slate-700 transition-colors"
+                  >
+                    <MonitorPlay className="w-3.5 h-3.5" /> 룰영상
+                  </button>
+                  
+                  {/* 룰정리 (pdf 존재 여부 확인) */}
+                  <button 
+                    disabled={!availableSummaries.has(game.id)}
+                    onClick={() => window.open(getStorageUrl('rule_summary', game.id, 'pdf'))}
+                    className="flex items-center justify-center gap-1.5 py-3 text-[11px] font-bold disabled:opacity-30 hover:bg-slate-700 transition-colors"
+                  >
+                    <PlaySquare className="w-3.5 h-3.5" /> 룰정리
+                  </button>
+                </div>
+
+              </div>
+            );
+          })}
+        </div>
+
+        {filteredGames.length === 0 && !isLoading && (
+          <div className="text-center py-20 text-gray-400 font-bold text-lg">
+            조건에 맞는 게임이 없습니다.
+          </div>
+        )}
+      </div>
     </main>
   );
 }

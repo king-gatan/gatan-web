@@ -237,7 +237,7 @@ export default function ReceiptPage() {
               disabled={currentPlanIndex === validPlans.length - 1}
               className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-all"
             >
-              <ChevronLeft className="w-5 h-5" /> 이전 모임
+              <ChevronLeft className="w-5 h-5" /> 이전 날짜
             </button>
             
             <h2 className="text-2xl font-bold text-indigo-900">
@@ -249,7 +249,7 @@ export default function ReceiptPage() {
               disabled={currentPlanIndex === 0}
               className="flex items-center gap-1 px-4 py-2 text-sm font-bold text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-all"
             >
-              다음 모임 <ChevronRight className="w-5 h-5" />
+              다음 날짜 <ChevronRight className="w-5 h-5" />
             </button>
           </div>
 
@@ -259,7 +259,7 @@ export default function ReceiptPage() {
               <table className="w-full text-center table-auto border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b-2 border-slate-200 text-sm text-slate-600">
-                    <th className="p-3 font-bold">닉네임</th>
+                    <th className="p-3 font-bold">이름</th>
                     <th className="p-3 font-bold text-blue-600">최종 정산금액</th>
                     <th className="p-3 font-medium text-xs text-gray-400">상세 내역</th>
                   </tr>
