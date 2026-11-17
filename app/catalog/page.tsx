@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Home, Search, PlaySquare, FileText, MonitorPlay, X, Check, Heart } from 'lucide-react';
+import { Home, Search, PlaySquare, FileText, MonitorPlay, X, Heart } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -16,10 +16,11 @@ type Boardgame = {
   title: string;
   game_type: string[];
   best_player: number[];
-  min_play_time_min: number; // 추가됨
-  max_play_time_min: number; // 추가됨
+  min_play_time_min: number;
+  max_play_time_min: number;
   weight: number;
   rule_video_url: string;
+  is_expansion: boolean; // 피드백 2 반영
 };
 
 type CollectionGame = {
@@ -34,27 +35,24 @@ export default function CatalogPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string>('');
   
-  // 전체 데이터 및 화면 표시 데이터
   const [allGames, setAllGames] = useState<CollectionGame[]>([]);
   const [filteredGames, setFilteredGames] = useState<CollectionGame[]>([]);
   
-  // Storage 파일 존재 여부 캐싱
   const [availableRulebooks, setAvailableRulebooks] = useState<Set<string>>(new Set());
   const [availableSummaries, setAvailableSummaries] = useState<Set<string>>(new Set());
   
-  // 검색 및 정렬 상태
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState('');
   const [sortOption, setSortOption] = useState('genre');
 
-  // 1. 초기 데이터 로드 (Collection + Boardgame + Playlog + Storage Check)
+  // 1. 데이터 로드
   useEffect(() => {
     const fetchCatalogData = async () => {
       try {
         const savedUserId = localStorage.getItem('gatan_current_user');
         if (savedUserId) setCurrentUserId(savedUserId);
 
-        // 1-1. boardgame_collection과 boardgame 조인하여 가져오기
+        // boardgame 테이블의 is_expansion 추가
         const { data: collectionData, error: collectionError } = await supabase
           .from('boardgame_collection')
           .select(`
@@ -62,23 +60,18 @@ export default function CatalogPage() {
             boardgame_id, 
             catalog_tags,
             boardgame (
-              id, title, game_type, best_player, weight, min_play_time_min, max_play_time_min, rule_video_url
+              id, title, game_type, best_player, weight, min_play_time_min, max_play_time_min, rule_video_url, is_expansion
             )
           `)
-          .not('catalog_tags', 'is', null); // 👈 이 줄이 추가되었습니다!
+          .not('catalog_tags', 'is', null);
 
-        // 🚨 [핵심] 에러가 발생하면 콘솔에 출력해서 원인을 찾습니다.
-        if (collectionError) {
-          console.error("❌ 카탈로그 조인 에러:", collectionError);
-        }
+        if (collectionError) console.error("❌ 카탈로그 조인 에러:", collectionError);
 
-        // 데이터가 없으면 로딩만 끄고 중단
         if (!collectionData) {
           setIsLoading(false);
           return;
         }
 
-        // 1-2. 플레이로그 가져와서 게임별 최신 플레이 날짜 계산
         const { data: playlogData } = await supabase
           .from('boardgame_playlog')
           .select('boardgame_id, play_date');
@@ -93,19 +86,14 @@ export default function CatalogPage() {
           });
         }
 
-        // 1-3. Storage 파일 목록 가져와서 존재하는 파일 확인
-        const { data: officialFiles, error: offError } = await supabase.storage.from('gatan-web-storage').list('rule_official', { limit: 1000 });
-        const { data: summaryFiles, error: sumError } = await supabase.storage.from('gatan-web-storage').list('rule_summary', { limit: 1000 });
+        const { data: officialFiles } = await supabase.storage.from('gatan-web-storage').list('rule_official', { limit: 1000 });
+        const { data: summaryFiles } = await supabase.storage.from('gatan-web-storage').list('rule_summary', { limit: 1000 });
         
-        if (offError) console.error("❌ 공식 룰북 스토리지 에러:", offError);
-        if (sumError) console.error("❌ 룰 요약 스토리지 에러:", sumError);
-
         const offSet = new Set(officialFiles?.map(f => f.name.split('.')[0]) || []);
         const sumSet = new Set(summaryFiles?.map(f => f.name.split('.')[0]) || []);
         setAvailableRulebooks(offSet);
         setAvailableSummaries(sumSet);
 
-        // 데이터 병합 (Collection 목록 기준)
         const combined: CollectionGame[] = collectionData.map((c: any) => ({
           id: c.id,
           boardgame_id: c.boardgame_id,
@@ -116,26 +104,23 @@ export default function CatalogPage() {
 
         setAllGames(combined);
       } catch (err) {
-        console.error("❌ 알 수 없는 에러 발생:", err);
+        console.error("❌ 데이터 로드 에러:", err);
       } finally {
-        // 성공하든 에러가 나든 무조건 로딩 화면을 종료합니다.
-        setIsLoading(false); 
+        setIsLoading(false);
       }
     };
 
     fetchCatalogData();
   }, []);
 
-  // 2. 검색, 태그 필터링, 정렬 적용 (상태가 바뀔 때마다 실행)
+  // 2. 검색, 태그 필터링, 정렬 적용
   useEffect(() => {
     let result = [...allGames];
 
-    // 태그 필터링
     if (selectedTag) {
       result = result.filter(g => g.catalog_tags?.includes(selectedTag));
     }
 
-    // 텍스트 검색 (이름 또는 태그)
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(g => 
@@ -144,28 +129,33 @@ export default function CatalogPage() {
       );
     }
 
-    // 정렬
+    // 피드백 3: 플레이 날짜 정렬 시 NULL 데이터 일시적 제외
+    if (sortOption === 'recent' || sortOption === 'oldest') {
+      result = result.filter(g => g.last_play_date !== null);
+    }
+
+    // 피드백 4: 2차 정렬 기준(이름순) 반영
     result.sort((a, b) => {
+      const titleA = a.boardgame.title;
+      const titleB = b.boardgame.title;
+
       if (sortOption === 'genre') {
         const genreA = a.boardgame.game_type?.[0] || '';
         const genreB = b.boardgame.game_type?.[0] || '';
+        if (genreA === genreB) return titleA.localeCompare(titleB);
         return genreA.localeCompare(genreB);
       } 
       else if (sortOption === 'best_player') {
         const bpA = a.boardgame.best_player?.[0] || 999;
         const bpB = b.boardgame.best_player?.[0] || 999;
+        if (bpA === bpB) return titleA.localeCompare(titleB);
         return bpA - bpB;
       }
       else if (sortOption === 'recent') {
-        // null 값(플레이 안 한 게임)은 항상 뒤로
-        if (!a.last_play_date) return 1;
-        if (!b.last_play_date) return -1;
-        return new Date(b.last_play_date).getTime() - new Date(a.last_play_date).getTime();
+        return new Date(b.last_play_date!).getTime() - new Date(a.last_play_date!).getTime();
       }
       else if (sortOption === 'oldest') {
-        if (!a.last_play_date) return 1;
-        if (!b.last_play_date) return -1;
-        return new Date(a.last_play_date).getTime() - new Date(b.last_play_date).getTime();
+        return new Date(a.last_play_date!).getTime() - new Date(b.last_play_date!).getTime();
       }
       return 0;
     });
@@ -173,34 +163,28 @@ export default function CatalogPage() {
     setFilteredGames(result);
   }, [allGames, searchQuery, selectedTag, sortOption]);
 
-  // 3. 위시리스트 추가 핸들러
   const handleAddWish = async (boardgameId: string, title: string) => {
     if (!currentUserId) {
       alert("로그인이 필요합니다.");
       return;
     }
-
     const { error } = await supabase
       .from('gatan_plan_wishlist')
       .insert({ boardgame_id: boardgameId, account_id: currentUserId });
 
     if (error) {
-      // UNIQUE 제약 조건에 걸려 이미 추가된 경우
       if (error.code === '23505') {
         alert(`'${title}' 은(는) 이미 위시리스트에 담겨 있습니다!`);
       } else {
         alert("오류가 발생했습니다.");
-        console.error(error);
       }
     } else {
       alert(`'${title}' 이(가) 위시리스트에 추가되었습니다!`);
     }
   };
 
-  // 타이틀 포맷팅 (영문 제거)
   const formatTitle = (title: string) => title.replace(/\s*\(.*?\)/g, '').trim();
 
-  // Storage 공용 URL 가져오기 헬퍼
   const getStorageUrl = (folder: string, id: string, ext: string = 'webp') => {
     return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/gatan-web-storage/${folder}/${id}.${ext}`;
   };
@@ -209,7 +193,6 @@ export default function CatalogPage() {
 
   return (
     <main className="min-h-screen bg-[#f8f9fa] p-6 md:p-12 pb-24">
-      {/* 헤더 */}
       <header className="max-w-6xl mx-auto flex items-center justify-between mb-8">
         <Link href="/" className="flex items-center gap-2 text-gray-500 hover:text-gray-900 font-bold transition-colors">
           <Home className="w-5 h-5" /> 메인으로
@@ -217,14 +200,12 @@ export default function CatalogPage() {
         <h1 className="text-3xl font-extrabold text-gray-900 absolute left-1/2 transform -translate-x-1/2">
           보드게임 카탈로그
         </h1>
-        {/* 티어리스트 (향후 구현용 빈 버튼) */}
         <button className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm opacity-80 cursor-not-allowed">
           🏆 티어리스트 생성 (향후 구현)
         </button>
       </header>
 
       <div className="max-w-6xl mx-auto space-y-6">
-        {/* 검색 및 컨트롤 바 */}
         <div className="bg-[#1c2331] rounded-2xl p-2 flex flex-col md:flex-row gap-2 shadow-lg">
           <select 
             className="bg-[#2a3447] text-white px-4 py-3 rounded-xl font-bold outline-none cursor-pointer border border-transparent focus:border-indigo-400"
@@ -235,6 +216,7 @@ export default function CatalogPage() {
             <option value="best_player">베스트 인원순</option>
             <option value="recent">최근 플레이순</option>
             <option value="oldest">오래된 플레이순</option>
+            <option value="rating">평점순(향후 구현)</option>
           </select>
 
           <div className="flex-1 flex bg-white rounded-xl overflow-hidden focus-within:ring-2 ring-indigo-500 transition-shadow relative">
@@ -253,7 +235,6 @@ export default function CatalogPage() {
           </button>
         </div>
 
-        {/* 선택된 태그 표시 영역 */}
         {selectedTag && (
           <div className="flex items-center gap-2 bg-indigo-100 text-indigo-800 px-4 py-2 rounded-lg w-max font-bold text-sm">
             <span>태그 필터: #{selectedTag}</span>
@@ -263,14 +244,12 @@ export default function CatalogPage() {
           </div>
         )}
 
-        {/* 게임 그리드 카드 UI */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {filteredGames.map((item) => {
             const game = item.boardgame;
             const mainGenre = game.game_type?.[0];
             const bestPlayerList = game.best_player || [];
             
-            // 베스트 인원 텍스트 변환 (1,2 -> 1-2인)
             let bestPlayerText = '';
             if (bestPlayerList.length > 0) {
               const min = bestPlayerList[0];
@@ -278,23 +257,18 @@ export default function CatalogPage() {
               bestPlayerText = min === max ? `${min}인` : `${min}-${max}인`;
             }
 
-            // 👇 새로 추가할 플레이 타임 변환 로직
             const minTime = game.min_play_time_min;
             const maxTime = game.max_play_time_min;
             let playTimeText = '?';
-            
             if (minTime && maxTime) {
-              // 값이 모두 있고 같으면 하나만, 다르면 범위로 표시
               playTimeText = minTime === maxTime ? `${minTime}` : `${minTime}-${maxTime}`;
             } else if (minTime || maxTime) {
-              // 둘 중 하나만 값이 있으면 그 값만 표시
               playTimeText = `${minTime || maxTime}`;
-            }            
+            }
 
             return (
               <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col transition-all hover:shadow-md hover:border-indigo-200 group">
                 
-                {/* 카드 상단 배지 및 위시 버튼 */}
                 <div className="flex justify-between items-center p-4 pb-2">
                   <div className="flex gap-1.5">
                     {mainGenre && (
@@ -302,9 +276,9 @@ export default function CatalogPage() {
                         {mainGenre}
                       </span>
                     )}
-                    {/* 확장판일 경우 태그 임시 예시 (추후 collect_type 연동 가능) */}
-                    {item.catalog_tags?.includes('확장') && (
-                      <span className="bg-[#1e293b] text-white text-[11px] font-bold px-2 py-1 rounded">
+                    {/* 피드백 2: DB의 is_expansion 값을 체크하여 별도의 색상으로 출력 */}
+                    {game.is_expansion && (
+                      <span className="bg-[#475569] text-white text-[11px] font-bold px-2 py-1 rounded">
                         확장
                       </span>
                     )}
@@ -317,9 +291,7 @@ export default function CatalogPage() {
                   </button>
                 </div>
 
-                {/* 게임 이미지 */}
                 <div className="relative w-full aspect-square bg-gray-50 flex items-center justify-center p-4">
-                  {/* Supabase Storage 에서 id.webp 또는 png 를 호출 (실패시 기본 텍스트) */}
                   <img 
                     src={getStorageUrl('images', game.id, 'webp')} 
                     onError={(e) => {
@@ -330,16 +302,18 @@ export default function CatalogPage() {
                   />
                 </div>
 
-                {/* 게임 정보 텍스트 영역 */}
                 <div className="p-5 flex flex-col flex-1 text-center">
                   <h3 className="text-xl font-extrabold text-gray-900 mb-1">
                     {formatTitle(game.title)}
                   </h3>
-                  <div className="text-sm font-bold text-gray-400 mb-4">
-                    베스트 {bestPlayerText}
-                  </div>
                   
-                  {/* 클릭 가능한 태그 */}
+                  {/* 피드백 1: bestPlayerText가 빈 값일 경우 전체 영역을 숨김 */}
+                  {bestPlayerText && (
+                    <div className="text-sm font-bold text-gray-400 mb-4">
+                      추천 {bestPlayerText} 인
+                    </div>
+                  )}
+                  
                   <div className="flex flex-wrap justify-center gap-1.5 mb-5 mt-auto">
                     {item.catalog_tags?.map(tag => (
                       <button 
@@ -352,16 +326,13 @@ export default function CatalogPage() {
                     ))}
                   </div>
 
-                  {/* 👇 수정 후 */}
                   <div className="flex justify-between items-center text-xs font-bold text-gray-500 pt-3 border-t border-gray-100">
-                    <span>타임: {playTimeText}분</span>
+                    <span>시간: {playTimeText}분</span>
                     <span>웨이트: {game.weight}</span>
                   </div>
                 </div>
 
-                {/* 하단 룰 관련 버튼 3개 */}
                 <div className="grid grid-cols-3 bg-[#1e293b] text-white">
-                  {/* 룰북 (pdf 존재 여부 확인) */}
                   <button 
                     disabled={!availableRulebooks.has(game.id)}
                     onClick={() => window.open(getStorageUrl('rule_official', game.id, 'pdf'))}
@@ -369,17 +340,13 @@ export default function CatalogPage() {
                   >
                     <FileText className="w-3.5 h-3.5" /> 룰북
                   </button>
-                  
-                  {/* 룰영상 (URL 존재 여부 확인) */}
                   <button 
                     disabled={!game.rule_video_url}
-                    onClick={() => window.open(game.rule_video_url)}
+                    onClick={() => game.rule_video_url ? window.open(game.rule_video_url) : undefined}
                     className="flex items-center justify-center gap-1.5 py-3 text-[11px] font-bold border-r border-gray-600 disabled:opacity-30 hover:bg-slate-700 transition-colors"
                   >
                     <MonitorPlay className="w-3.5 h-3.5" /> 룰영상
                   </button>
-                  
-                  {/* 룰정리 (pdf 존재 여부 확인) */}
                   <button 
                     disabled={!availableSummaries.has(game.id)}
                     onClick={() => window.open(getStorageUrl('rule_summary', game.id, 'pdf'))}
@@ -388,7 +355,6 @@ export default function CatalogPage() {
                     <PlaySquare className="w-3.5 h-3.5" /> 룰정리
                   </button>
                 </div>
-
               </div>
             );
           })}
