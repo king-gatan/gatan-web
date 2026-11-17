@@ -16,7 +16,8 @@ type Boardgame = {
   title: string;
   game_type: string[];
   best_player: number[];
-  play_time_min: number;
+  min_play_time_min: number; // 추가됨
+  max_play_time_min: number; // 추가됨
   weight: number;
   rule_video_url: string;
 };
@@ -61,7 +62,7 @@ export default function CatalogPage() {
             boardgame_id, 
             catalog_tags,
             boardgame (
-              id, title, game_type, best_player, play_time_min, weight, rule_video_url
+              id, title, game_type, best_player, weight, min_play_time_min, max_play_time_min, rule_video_url
             )
           `);
 
@@ -276,6 +277,19 @@ export default function CatalogPage() {
               bestPlayerText = min === max ? `${min}인` : `${min}-${max}인`;
             }
 
+            // 👇 새로 추가할 플레이 타임 변환 로직
+            const minTime = game.min_play_time_min;
+            const maxTime = game.max_play_time_min;
+            let playTimeText = '?';
+            
+            if (minTime && maxTime) {
+              // 값이 모두 있고 같으면 하나만, 다르면 범위로 표시
+              playTimeText = minTime === maxTime ? `${minTime}` : `${minTime}-${maxTime}`;
+            } else if (minTime || maxTime) {
+              // 둘 중 하나만 값이 있으면 그 값만 표시
+              playTimeText = `${minTime || maxTime}`;
+            }            
+
             return (
               <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col transition-all hover:shadow-md hover:border-indigo-200 group">
                 
@@ -338,8 +352,9 @@ export default function CatalogPage() {
                     ))}
                   </div>
 
+                  {/* 👇 수정 후 */}
                   <div className="flex justify-between items-center text-xs font-bold text-gray-500 pt-3 border-t border-gray-100">
-                    <span>타임: {game.play_time_min}분</span>
+                    <span>타임: {playTimeText}분</span>
                     <span>웨이트: {game.weight}</span>
                   </div>
                 </div>
