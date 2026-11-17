@@ -216,7 +216,6 @@ export default function CatalogPage() {
             <option value="best_player">베스트 인원순</option>
             <option value="recent">최근 플레이순</option>
             <option value="oldest">오래된 플레이순</option>
-            <option value="rating">평점순(향후 구현)</option>
           </select>
 
           <div className="flex-1 flex bg-white rounded-xl overflow-hidden focus-within:ring-2 ring-indigo-500 transition-shadow relative">
@@ -310,7 +309,7 @@ export default function CatalogPage() {
                   {/* 피드백 1: bestPlayerText가 빈 값일 경우 전체 영역을 숨김 */}
                   {bestPlayerText && (
                     <div className="text-sm font-bold text-gray-400 mb-4">
-                      추천 {bestPlayerText} 인
+                      추천 {bestPlayerText}
                     </div>
                   )}
                   
